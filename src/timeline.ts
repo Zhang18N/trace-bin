@@ -103,6 +103,9 @@ interface Item {
   color: string;
   label: string;
   tooltip: string;
+  incomplete?: boolean;
+  missingEnd?: boolean;
+  orphanEnd?: boolean;
 }
 
 const ROW_HEIGHT = 25;
@@ -202,6 +205,7 @@ export class TraceTimeline {
 
     const groupMap = new Map<string, Group>();
     const tasksByThread = new Map<string, string[]>();
+    const incompleteTaskSet = new Set<string>();
 
     for (const s of visible) {
       if (!tasksByThread.has(s.thread)) {
@@ -213,6 +217,10 @@ export class TraceTimeline {
       if (!arr.includes(s.task)) {
         arr.push(s.task);
       }
+
+      if (s.incomplete) {
+        incompleteTaskSet.add(s.task);
+      }
     }
 
     for (const [thread, tasks] of tasksByThread) {
@@ -222,7 +230,9 @@ export class TraceTimeline {
       if (lifecycle && !groupMap.has(lifecycle)) {
         groupMap.set(lifecycle, {
           id: lifecycle,
-          label: lifecycle,
+          label: incompleteTaskSet.has(lifecycle)
+            ? `${lifecycle} *`
+            : lifecycle,
           color: getColor(thread),
           indent: 0,
           order: base,
@@ -234,9 +244,13 @@ export class TraceTimeline {
         .sort()
         .forEach((task, idx) => {
           if (!groupMap.has(task)) {
+            const shortLabel = task.split('.')[1] ?? task;
+
             groupMap.set(task, {
               id: task,
-              label: task.split('.')[1] ?? task,
+              label: incompleteTaskSet.has(task)
+                ? `${shortLabel} *`
+                : shortLabel,
               color: getColor(thread),
               indent: 16,
               order: base + 0.001 * (idx + 1),
@@ -271,18 +285,34 @@ export class TraceTimeline {
     this.items = rawItems.map(({ span: s, startNs, endNs }) => {
       const durationNs = endNs - startNs;
 
+      const status = s.missingEnd
+        ? 'Missing END'
+        : s.orphanEnd
+        ? 'END without START'
+        : 'Complete';
+
       return {
         id: s.id,
         groupId: s.task,
         startNs,
         endNs,
         color: getColor(s.thread),
-        label: s.task.includes('.') ? s.task.split('.')[1] : s.task,
+        label: s.task.includes('.')
+          ? s.missingEnd
+            ? `${s.task.split('.')[1]} *`
+            : s.task.split('.')[1]
+          : s.missingEnd
+          ? `${s.task} *`
+          : s.task,
+        incomplete: s.incomplete,
+        missingEnd: s.missingEnd,
+        orphanEnd: s.orphanEnd,
         tooltip: [
           s.task,
           `Duration: ${formatDurationNs(durationNs)}`,
           `Start: ${formatTimeOffsetNs(startNs - this.dataStart)}`,
           `End:   ${formatTimeOffsetNs(endNs - this.dataStart)}`,
+          `Status: ${status}`,
         ].join('\n'),
       };
     });
@@ -437,7 +467,7 @@ export class TraceTimeline {
     for (const item of this.items) {
       if (item.groupId !== group.id) continue;
 
-      // 对于很短但绘制成 1px 的 item，hitTest 稍微放宽
+// 对于很短但绘制成 1px 的 item，hitTest 稍微放宽
       const start = Math.min(item.startNs, item.endNs);
       const end = Math.max(item.startNs, item.endNs);
 
@@ -512,7 +542,10 @@ export class TraceTimeline {
     ctx.lineTo(W, HEADER_HEIGHT);
     ctx.stroke();
 
-    // Tooltip
+    // 鼠标游标线和顶部标签放在最后画，保证在最上层
+    this.renderCrosshair(ctx, CW, CH);
+
+    // Tooltip 最后画
     if (this.hoveredItem) {
       this.renderTooltip(ctx, W, H);
     }
@@ -559,33 +592,53 @@ export class TraceTimeline {
       ctx.fillStyle = '#e0e0e0';
       ctx.fillText(label, x, HEADER_HEIGHT / 2);
     }
+  }
 
-    // 鼠标当前位置指示线
-    if (this.mouseX >= 0 && this.mouseX <= CW) {
-      const mx = LEFT_PANEL + this.mouseX;
-
-      ctx.strokeStyle = 'rgba(255,255,100,0.5)';
-      ctx.lineWidth = 1;
-      ctx.setLineDash([4, 4]);
-      ctx.beginPath();
-      ctx.moveTo(mx, 0);
-      ctx.lineTo(mx, HEADER_HEIGHT + CH);
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      const relNs = this.xToNs(this.mouseX) - origin;
-      const label = formatAxisNs(relNs, step);
-      const tw = ctx.measureText(label).width + 8;
-
-      let lx = mx - tw / 2;
-      lx = Math.max(LEFT_PANEL + 2, Math.min(lx, LEFT_PANEL + CW - tw - 2));
-
-      ctx.fillStyle = 'rgba(50,50,0,0.85)';
-      ctx.fillRect(lx, 2, tw, 18);
-
-      ctx.fillStyle = '#ffffee';
-      ctx.fillText(label, lx + tw / 2, 11);
+  // 鼠标当前位置指示线
+  private renderCrosshair(
+    ctx: CanvasRenderingContext2D,
+    CW: number,
+    CH: number
+  ) {
+    if (this.mouseX < 0 || this.mouseX > CW) {
+      return;
     }
+
+    const mx = LEFT_PANEL + this.mouseX;
+    const visibleNs = this.viewEnd - this.viewStart;
+    const maxTicks = Math.max(4, Math.floor(CW / 100));
+    const step = calcTickStep(visibleNs, maxTicks);
+    const origin = this.dataStart;
+
+    ctx.save();
+
+    // 贯穿 header + chart 的竖线，最后画，确保显示在最上层
+    ctx.strokeStyle = 'rgba(255,255,100,0.75)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(mx, 0);
+    ctx.lineTo(mx, HEADER_HEIGHT + CH);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    const relNs = this.xToNs(this.mouseX) - origin;
+    const label = formatAxisNs(relNs, step);
+    const tw = ctx.measureText(label).width + 8;
+
+    let lx = mx - tw / 2;
+    lx = Math.max(LEFT_PANEL + 2, Math.min(lx, LEFT_PANEL + CW - tw - 2));
+
+    ctx.fillStyle = 'rgba(50,50,0,0.92)';
+    ctx.fillRect(lx, 2, tw, 18);
+
+    ctx.fillStyle = '#ffffee';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '11px monospace';
+    ctx.fillText(label, lx + tw / 2, 11);
+
+    ctx.restore();
   }
 
   private renderRows(ctx: CanvasRenderingContext2D, CW: number, CH: number) {
@@ -614,8 +667,16 @@ export class TraceTimeline {
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
 
-      // 一级线程用线程色，子任务用浅色，黑色背景下更清楚
-      ctx.fillStyle = group.indent === 0 ? lighten(group.color) : '#dddddd';
+      // 一级线程用线程色，子任务用浅色；如果带 *，说明存在 incomplete
+      const hasIncomplete = group.label.endsWith(' *');
+      ctx.fillStyle =
+        group.indent === 0
+          ? hasIncomplete
+            ? '#ffcc66'
+            : lighten(group.color)
+          : hasIncomplete
+          ? '#ffcc66'
+          : '#dddddd';
 
       const labelX = 8 + group.indent;
       const labelY = rowTop + ROW_HEIGHT / 2;
@@ -677,15 +738,42 @@ export class TraceTimeline {
         const itemY = rowTop + 3;
 
         const isHovered = this.hoveredItem?.id === item.id;
+        const isIncomplete = !!item.incomplete;
 
-        ctx.fillStyle = isHovered ? lighten(item.color) : item.color;
+        ctx.fillStyle = isIncomplete
+          ? isHovered
+            ? '#ffcc66'
+            : 'rgba(255, 170, 60, 0.82)'
+          : isHovered
+          ? lighten(item.color)
+          : item.color;
+
         ctx.beginPath();
         ctx.roundRect(visibleX, itemY, itemW, itemH, 3);
         ctx.fill();
 
-        ctx.strokeStyle = isHovered ? '#ffffff' : 'rgba(0,0,0,0.3)';
-        ctx.lineWidth = isHovered ? 1.5 : 0.5;
+        ctx.strokeStyle = isIncomplete
+          ? '#ffcc66'
+          : isHovered
+          ? '#ffffff'
+          : 'rgba(0,0,0,0.3)';
+        ctx.lineWidth = isIncomplete ? 1.6 : isHovered ? 1.5 : 0.5;
         ctx.stroke();
+
+        // missing END 时在右边画个小尖头，提示“未结束”
+        if (item.missingEnd && itemW >= 8) {
+          const right = visibleX + itemW;
+
+          ctx.save();
+          ctx.strokeStyle = '#fff2a8';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(right - 6, itemY + 4);
+          ctx.lineTo(right - 2, itemY + itemH / 2);
+          ctx.lineTo(right - 6, itemY + itemH - 4);
+          ctx.stroke();
+          ctx.restore();
+        }
 
         // item 标签，只在足够宽时绘制
         if (itemW > 30) {
@@ -728,7 +816,7 @@ export class TraceTimeline {
     const lines = item.tooltip.split('\n');
     const padding = 8;
     const lineH = 18;
-    const tipW = 300;
+    const tipW = 130;
     const tipH = lines.length * lineH + padding * 2;
 
     let tx = LEFT_PANEL + this.mouseX + 16;
@@ -746,12 +834,12 @@ export class TraceTimeline {
     ty = Math.max(HEADER_HEIGHT + 2, ty);
 
     // tooltip 背景
-    ctx.fillStyle = 'rgba(20,20,20,0.94)';
+    ctx.fillStyle = 'rgba(20,20,20,0.54)';
     ctx.beginPath();
     ctx.roundRect(tx, ty, tipW, tipH, 4);
     ctx.fill();
 
-    ctx.strokeStyle = '#666';
+    ctx.strokeStyle = item.missingEnd ? '#ffcc66' : '#666';
     ctx.lineWidth = 1;
     ctx.stroke();
 
@@ -767,6 +855,29 @@ export class TraceTimeline {
         ctx.font = 'bold 12px monospace';
         ctx.fillStyle = '#ffffff';
         ctx.fillText(line, x, y);
+        return;
+      }
+
+      // Status 高亮
+      const statusMatch = line.match(/^(Status:\s*)(.+)$/);
+      if (statusMatch) {
+        const prefix = statusMatch[1];
+        const value = statusMatch[2];
+
+        ctx.font = '11px monospace';
+        ctx.fillStyle = '#aaaaaa';
+        ctx.fillText(prefix, x, y);
+
+        const prefixW = ctx.measureText(prefix).width;
+
+        ctx.font = 'bold 11px monospace';
+        ctx.fillStyle =
+          value === 'Missing END'
+            ? '#ffcc66'
+            : value === 'Complete'
+            ? '#81c784'
+            : '#ef5350';
+        ctx.fillText(value, x + prefixW, y);
         return;
       }
 

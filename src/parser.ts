@@ -109,6 +109,23 @@ export interface TraceSpan {
   start_ns: bigint;
   end_ns: bigint;
   duration_us: number;
+
+  /**
+   * true 表示这个 span 不是完整配对出来的。
+   * 例如只有 START 没有 END。
+   */
+  incomplete?: boolean;
+
+  /**
+   * true 表示缺少结束事件。
+   */
+  missingEnd?: boolean;
+
+  /**
+   * true 表示只有 END，没有 START。
+   * 当前下面的 buildSpans 暂时不生成 orphanEnd，只预留字段。
+   */
+  orphanEnd?: boolean;
 }
 
 export function parseTrace(buffer: ArrayBuffer): TraceEntry[] {
@@ -152,38 +169,87 @@ export function parseTrace(buffer: ArrayBuffer): TraceEntry[] {
 }
 
 export function buildSpans(entries: TraceEntry[]): TraceSpan[] {
-  // key: `${thread_id}-${task}` -> start entry
+  // key: `${thread_id}-${task}` -> start stack
   const pending = new Map<
     string,
-    { event: number; ts: bigint; task: string; thread: string }
+    Array<{
+      event: number;
+      ts: bigint;
+      task: string;
+      thread: string;
+      thread_id: number;
+    }>
   >();
+
   const spans: TraceSpan[] = [];
   let spanId = 0;
 
   const base_ns = entries.length > 0 ? entries[0].timestamp_ns : 0n;
+  const traceEndAbsNs =
+    entries.length > 0 ? entries[entries.length - 1].timestamp_ns : base_ns;
+
+  const MIN_OPEN_SPAN_NS = 1_000_000n;
 
   for (const e of entries) {
     const key = `${e.thread_id}-${e.task}`;
 
     if (START_EVENTS.has(e.event)) {
-      // 开始事件，记录到 pending
-      pending.set(key, {
+      const stack = pending.get(key) ?? [];
+
+      stack.push({
         event: e.event,
         ts: e.timestamp_ns,
         task: e.task,
         thread: e.thread,
+        thread_id: e.thread_id,
       });
+      // 开始事件，记录到 pending
+      pending.set(key, stack);
     } else {
-      // 结束事件，查找对应的 start
+// 结束事件，查找对应的 start
       const expectedStart = END_TO_START.get(e.event);
       if (expectedStart === undefined) continue;
 
-      const start = pending.get(key);
-      if (!start || start.event !== expectedStart) continue;
+      const stack = pending.get(key);
 
-      pending.delete(key);
+      if (!stack || stack.length === 0) {
+        /**
+         * orphan END，暂时忽略。
+         */
+        continue;
+      }
+
+      /**
+       * 从后往前找对应的 start event。
+       * 正常情况下就是栈顶。
+       */
+      let startIndex = -1;
+
+      for (let i = stack.length - 1; i >= 0; i--) {
+        if (stack[i].event === expectedStart) {
+          startIndex = i;
+          break;
+        }
+      }
+
+      if (startIndex === -1) {
+        /**
+         * 有 pending，但没有对应的 start event。
+         * 这个 END 也暂时忽略。
+         */
+        continue;
+      }
+
+      const start = stack.splice(startIndex, 1)[0];
+
+      if (stack.length === 0) {
+        pending.delete(key);
+      } else {
+        pending.set(key, stack);
+      }
 
       const duration_us = Number(e.timestamp_ns - start.ts) / 1000;
+
       spans.push({
         id: `span-${spanId++}`,
         thread: e.thread,
@@ -195,11 +261,58 @@ export function buildSpans(entries: TraceEntry[]): TraceSpan[] {
     }
   }
 
+  /**
+   * 处理所有 missing END。
+   */
+  for (const [, stack] of pending) {
+    for (const start of stack) {
+      let endAbsNs = traceEndAbsNs;
+
+      if (endAbsNs <= start.ts) {
+        endAbsNs = start.ts + MIN_OPEN_SPAN_NS;
+      }
+
+      const duration_us = Number(endAbsNs - start.ts) / 1000;
+
+      spans.push({
+        id: `span-${spanId++}`,
+        thread: start.thread,
+        task: start.task,
+        start_ns: start.ts - base_ns,
+        end_ns: endAbsNs - base_ns,
+        duration_us,
+        incomplete: true,
+        missingEnd: true,
+      });
+    }
+  }
+
+  spans.sort((a, b) =>
+    a.start_ns < b.start_ns ? -1 : a.start_ns > b.start_ns ? 1 : 0
+  );
+
   console.log('=== buildSpans Summary ===');
   console.log('Total spans:', spans.length);
+
   const byTask = new Map<string, number>();
-  spans.forEach((s) => byTask.set(s.task, (byTask.get(s.task) || 0) + 1));
-  byTask.forEach((count, task) => console.log(`  ${task}: ${count}`));
+  const incompleteByTask = new Map<string, number>();
+
+  spans.forEach((s) => {
+    byTask.set(s.task, (byTask.get(s.task) || 0) + 1);
+
+    if (s.incomplete) {
+      incompleteByTask.set(s.task, (incompleteByTask.get(s.task) || 0) + 1);
+    }
+  });
+
+  byTask.forEach((count, task) => {
+    const incompleteCount = incompleteByTask.get(task) || 0;
+    if (incompleteCount > 0) {
+      console.log(`  ${task}: ${count}, incomplete: ${incompleteCount}`);
+    } else {
+      console.log(`  ${task}: ${count}`);
+    }
+  });
 
   return spans;
 }
