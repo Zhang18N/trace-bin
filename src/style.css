@@ -1,0 +1,202 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #1e1e2e;
+  color: #cdd6f4;
+  height: 100vh;
+  overflow: hidden;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* 顶部工具栏 */
+#toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 16px;
+  background: #181825;
+  border-bottom: 1px solid #313244;
+  flex-shrink: 0;
+}
+
+#toolbar h2 {
+  font-size: 16px;
+  color: #cba6f7;
+}
+
+.upload-btn {
+  cursor: pointer;
+  background: #313244;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  transition: background 0.2s;
+}
+.upload-btn:hover {
+  background: #45475a;
+}
+.upload-btn input {
+  display: none;
+}
+
+#file-info {
+  font-size: 12px;
+  color: #6c7086;
+}
+
+/* 主布局 */
+#main-layout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* 左侧面板 */
+#sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  background: #181825;
+  border-right: 1px solid #313244;
+  overflow-y: auto;
+}
+
+#filter-panel {
+  padding: 8px;
+}
+
+.filter-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: bold;
+  color: #a6adc8;
+}
+
+.filter-header button {
+  font-size: 11px;
+  padding: 2px 8px;
+  background: #313244;
+  border: none;
+  border-radius: 4px;
+  color: #cdd6f4;
+  cursor: pointer;
+  margin-left: 4px;
+}
+.filter-header button:hover {
+  background: #45475a;
+}
+
+.filter-group {
+  margin-bottom: 10px;
+}
+
+.filter-group-header {
+  padding: 4px 2px;
+  border-bottom: 1px solid #313244;
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+.filter-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.filter-item:hover {
+  background: #313244;
+}
+
+/* 右侧内容 */
+#content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#stats-bar {
+  display: flex;
+  gap: 20px;
+  padding: 6px 16px;
+  background: #181825;
+  border-bottom: 1px solid #313244;
+  font-size: 12px;
+  color: #a6adc8;
+  flex-shrink: 0;
+}
+
+#stats-bar b {
+  color: #cdd6f4;
+}
+
+.timeout-badge {
+  color: #ef5350;
+  font-weight: bold;
+}
+
+/* vis-timeline 容器 */
+#timeline-container {
+  flex: 1;
+  overflow: hidden;
+  background: #1e1e2e;
+}
+
+/* 覆盖 vis-timeline 默认样式 */
+.vis-timeline {
+  border: none !important;
+  background: #1e1e2e !important;
+}
+.vis-panel.vis-center {
+  background: #1e1e2e !important;
+}
+.vis-panel.vis-left {
+  background: #181825 !important;
+}
+.vis-label {
+  color: #cdd6f4 !important;
+  font-size: 12px !important;
+}
+.vis-time-axis .vis-text {
+  color: #6c7086 !important;
+  font-size: 11px !important;
+}
+.vis-time-axis .vis-grid.vis-minor {
+  border-color: #313244 !important;
+}
+.vis-time-axis .vis-grid.vis-major {
+  border-color: #45475a !important;
+}
+.vis-item {
+  border-radius: 3px !important;
+  font-size: 11px !important;
+}
+.vis-item.vis-selected {
+  border-width: 2px !important;
+}
+.vis-tooltip {
+  background: #313244 !important;
+  color: #cdd6f4 !important;
+  border: 1px solid #45475a !important;
+  border-radius: 6px !important;
+  font-size: 12px !important;
+  padding: 6px 10px !important;
+}

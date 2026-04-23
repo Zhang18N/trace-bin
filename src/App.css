@@ -1,0 +1,325 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica,
+    Arial, sans-serif;
+  background: #1e1e1e;
+  color: #dddddd;
+  overflow: hidden;
+}
+
+button,
+input {
+  font-family: inherit;
+}
+
+.app {
+  display: flex;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+  background: #1e1e1e;
+  color: #dddddd;
+}
+
+/* ─────────────────────────────────────────────
+   Sidebar
+   ───────────────────────────────────────────── */
+
+.sidebar {
+  position: relative;
+  width: 200px;
+  min-width: 200px;
+  height: 100%;
+  background: #252526;
+  border-right: 1px solid #3a3a3a;
+  transition: width 0.18s ease, min-width 0.18s ease;
+  overflow: visible;
+  z-index: 10;
+}
+
+.sidebar-content {
+  width: 100%;
+  height: 100%;
+  padding: 10px 10px 12px 10px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  opacity: 1;
+  transition: opacity 0.12s ease;
+}
+
+/* Sidebar 折叠状态 */
+.app.sidebar-collapsed .sidebar {
+  width: 34px;
+  min-width: 34px;
+}
+
+.app.sidebar-collapsed .sidebar-content {
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden;
+  padding: 0;
+}
+
+/* ─────────────────────────────────────────────
+   Sidebar Toggle Button
+   ───────────────────────────────────────────── */
+
+.sidebar-toggle {
+  position: absolute;
+  top: 8px;
+  right: -10px;
+  width: 16px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid #444;
+  border-left: none;
+  border-radius: 0 5px 5px 0;
+  background: #2d2d2d;
+  color: #dddddd;
+  cursor: pointer;
+  z-index: 20;
+  font-size: 14px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar-toggle:hover {
+  background: #3a3a3a;
+  color: #ffffff;
+}
+
+.sidebar-toggle:active {
+  background: #454545;
+}
+
+.sidebar-toggle:focus {
+  outline: none;
+}
+
+.sidebar-toggle:focus-visible {
+  box-shadow: 0 0 0 1px #6aa9ff;
+}
+
+/* 如果你想用纯 CSS 箭头，可取消下面这段注释，并让 JSX 里 button 不放文字 */
+
+/*
+.sidebar-toggle {
+  font-size: 0;
+}
+
+.sidebar-toggle::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-top: 2px solid #dddddd;
+  border-right: 2px solid #dddddd;
+  transform: rotate(225deg);
+}
+
+.app.sidebar-collapsed .sidebar-toggle::before {
+  transform: rotate(45deg);
+}
+
+.sidebar-toggle:hover::before {
+  border-color: #ffffff;
+}
+*/
+
+/* ─────────────────────────────────────────────
+   Sidebar Content
+   ───────────────────────────────────────────── */
+
+.sidebar h3 {
+  margin: 10px 0 6px;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1.2;
+  font-weight: 700;
+  color: #e0e0e0;
+  letter-spacing: 0.2px;
+}
+
+.sidebar h3:first-child {
+  margin-top: 0;
+}
+
+.sidebar p {
+  margin: 4px 0 8px;
+}
+
+.sidebar input[type='file'] {
+  width: 100%;
+  max-width: 100%;
+  font-size: 11px;
+  color: #cccccc;
+}
+
+.sidebar input[type='file']::file-selector-button {
+  margin-right: 8px;
+  padding: 3px 8px;
+  border: 1px solid #4a4a4a;
+  border-radius: 3px;
+  background: #333333;
+  color: #dddddd;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.sidebar input[type='file']::file-selector-button:hover {
+  background: #3f3f3f;
+}
+
+/* ─────────────────────────────────────────────
+   Task Tree
+   ───────────────────────────────────────────── */
+
+.task-tree {
+  width: 100%;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #cccccc;
+  user-select: none;
+}
+
+.thread-group {
+  margin-bottom: 8px;
+}
+
+.thread-group > label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 20px;
+  color: #eeeeee;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.thread-group strong {
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.task-list {
+  margin-top: 2px;
+  padding-left: 0;
+}
+
+.task-list label {
+  min-height: 18px;
+  margin: 1px 0;
+  color: #cfcfcf;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-list label:hover,
+.thread-group > label:hover {
+  color: #ffffff;
+}
+
+.task-tree input[type='checkbox'] {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  flex: 0 0 auto;
+  accent-color: #4a9eff;
+  cursor: pointer;
+}
+
+/* 如果 JSX 里 task label 使用 inline style，这里主要负责兜底 */
+.task-list label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ─────────────────────────────────────────────
+   Main / Timeline
+   ───────────────────────────────────────────── */
+
+.main {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+  background: #1e1e1e;
+}
+
+.timeline-container {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Canvas 防止基线空隙 */
+.timeline-container canvas {
+  display: block;
+}
+
+/* ─────────────────────────────────────────────
+   Empty Overlay
+   ───────────────────────────────────────────── */
+
+.empty-state {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #999999;
+  font-size: 14px;
+  pointer-events: none;
+}
+
+/* ─────────────────────────────────────────────
+   Scrollbar
+   ───────────────────────────────────────────── */
+
+.sidebar-content::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.sidebar-content::-webkit-scrollbar-track {
+  background: #252526;
+}
+
+.sidebar-content::-webkit-scrollbar-thumb {
+  background: #555555;
+  border-radius: 4px;
+}
+
+.sidebar-content::-webkit-scrollbar-thumb:hover {
+  background: #666666;
+}
+
+/* Firefox */
+.sidebar-content {
+  scrollbar-width: thin;
+  scrollbar-color: #555555 #252526;
+}
+
+/* ─────────────────────────────────────────────
+   Utility
+   ───────────────────────────────────────────── */
+
+.no-select {
+  user-select: none;
+}
