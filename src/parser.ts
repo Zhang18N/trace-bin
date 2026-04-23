@@ -206,7 +206,7 @@ export function buildSpans(entries: TraceEntry[]): TraceSpan[] {
       // 开始事件，记录到 pending
       pending.set(key, stack);
     } else {
-// 结束事件，查找对应的 start
+      // 结束事件，查找对应的 start
       const expectedStart = END_TO_START.get(e.event);
       if (expectedStart === undefined) continue;
 

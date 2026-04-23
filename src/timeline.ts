@@ -141,6 +141,12 @@ export class TraceTimeline {
   private mouseY = -1;
   private hoveredItem: Item | null = null;
 
+  // Alt 临时测量游标
+  private measureMode = false;
+  private cursorA: number | null = null;
+  private cursorB: number | null = null;
+  private nextCursor: 'A' | 'B' = 'A';
+
   // 垂直滚动
   private scrollY = 0;
 
@@ -171,6 +177,8 @@ export class TraceTimeline {
     window.addEventListener('mousemove', this.onMouseMove);
     window.addEventListener('mouseup', this.onMouseUp);
     this.canvas.addEventListener('dblclick', this.onDblClick);
+    window.addEventListener('keydown', this.onKeyDown);
+    window.addEventListener('keyup', this.onKeyUp);
 
     this.canvas.addEventListener('mouseleave', () => {
       this.mouseX = -1;
@@ -406,8 +414,56 @@ export class TraceTimeline {
     this.scheduleRender();
   };
 
+  private onKeyDown = (e: KeyboardEvent) => {
+    if (e.key !== 'Alt') return;
+
+    if (!this.measureMode) {
+      this.measureMode = true;
+      this.nextCursor = 'A';
+      this.scheduleRender();
+    }
+  };
+
+  private onKeyUp = (e: KeyboardEvent) => {
+    if (e.key !== 'Alt') return;
+
+    this.measureMode = false;
+    this.cursorA = null;
+    this.cursorB = null;
+    this.nextCursor = 'A';
+
+    this.scheduleRender();
+  };
+
   private onMouseDown = (e: MouseEvent) => {
     if (e.button !== 0) return;
+
+    const rect = this.canvas.getBoundingClientRect();
+    const mouseXInChart = e.clientX - rect.left - LEFT_PANEL;
+
+    // Alt 临时测量模式：
+    // Alt + 左键点击，轮流设置 A/B 游标。
+    // 这里用 e.altKey 兜底，避免 keydown 状态在某些情况下没同步。
+    if (this.measureMode || e.altKey) {
+      if (mouseXInChart < 0 || mouseXInChart > this.chartWidth()) {
+        return;
+      }
+
+      this.measureMode = true;
+
+      const ns = this.xToNs(mouseXInChart);
+
+      if (this.nextCursor === 'A') {
+        this.cursorA = ns;
+        this.nextCursor = 'B';
+      } else {
+        this.cursorB = ns;
+        this.nextCursor = 'A';
+      }
+
+      this.scheduleRender();
+      return;
+    }
 
     this.dragging = true;
     this.dragStartX = e.clientX;
@@ -436,6 +492,8 @@ export class TraceTimeline {
 
     this.canvas.style.cursor = this.dragging
       ? 'grabbing'
+      : this.measureMode || e.altKey
+      ? 'crosshair'
       : this.hoveredItem
       ? 'pointer'
       : 'default';
@@ -467,7 +525,7 @@ export class TraceTimeline {
     for (const item of this.items) {
       if (item.groupId !== group.id) continue;
 
-// 对于很短但绘制成 1px 的 item，hitTest 稍微放宽
+      // 对于很短但绘制成 1px 的 item，hitTest 稍微放宽
       const start = Math.min(item.startNs, item.endNs);
       const end = Math.max(item.startNs, item.endNs);
 
@@ -544,6 +602,9 @@ export class TraceTimeline {
 
     // 鼠标游标线和顶部标签放在最后画，保证在最上层
     this.renderCrosshair(ctx, CW, CH);
+
+    // Alt 测量游标
+    this.renderMeasureCursors(ctx, CW, CH);
 
     // Tooltip 最后画
     if (this.hoveredItem) {
@@ -637,6 +698,150 @@ export class TraceTimeline {
     ctx.textBaseline = 'middle';
     ctx.font = '11px monospace';
     ctx.fillText(label, lx + tw / 2, 11);
+
+    ctx.restore();
+  }
+
+  private renderMeasureCursors(
+    ctx: CanvasRenderingContext2D,
+    CW: number,
+    CH: number
+  ) {
+    if (!this.measureMode && this.cursorA === null && this.cursorB === null) {
+      return;
+    }
+
+    const top = 0;
+    const bottom = HEADER_HEIGHT + CH;
+    const chartLeft = LEFT_PANEL;
+    const chartRight = LEFT_PANEL + CW;
+    const visibleNs = this.viewEnd - this.viewStart;
+    const maxTicks = Math.max(4, Math.floor(CW / 100));
+    const step = calcTickStep(visibleNs, maxTicks);
+    const origin = this.dataStart;
+
+    const cursorAX =
+      this.cursorA === null ? null : chartLeft + this.nsToX(this.cursorA);
+    const cursorBX =
+      this.cursorB === null ? null : chartLeft + this.nsToX(this.cursorB);
+
+    ctx.save();
+
+    // 1. A/B 区间高亮
+    if (
+      this.cursorA !== null &&
+      this.cursorB !== null &&
+      cursorAX !== null &&
+      cursorBX !== null
+    ) {
+      const x1 = Math.max(chartLeft, Math.min(cursorAX, cursorBX));
+      const x2 = Math.min(chartRight, Math.max(cursorAX, cursorBX));
+
+      if (x2 > chartLeft && x1 < chartRight && x2 > x1) {
+        ctx.fillStyle = 'rgba(255, 220, 100, 0.10)';
+        ctx.fillRect(x1, HEADER_HEIGHT, x2 - x1, CH);
+      }
+    }
+
+    // 2. 画单个游标
+    const drawCursor = (label: 'A' | 'B', ns: number | null, color: string) => {
+      if (ns === null) return;
+
+      const x = chartLeft + this.nsToX(ns);
+
+      // 完全不在可视区，线不画；但标签也不画，避免误导
+      if (x < chartLeft || x > chartRight) {
+        return;
+      }
+
+      const relNs = ns - origin;
+      const timeLabel = formatAxisNs(relNs, step);
+      const text = `${label} ${timeLabel}`;
+
+      // 竖线
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(x, top);
+      ctx.lineTo(x, bottom);
+      ctx.stroke();
+
+      // 顶部标签
+      ctx.font = '11px monospace';
+      const tw = ctx.measureText(text).width + 10;
+      const th = 18;
+
+      let lx = x - tw / 2;
+      lx = Math.max(chartLeft + 2, Math.min(lx, chartRight - tw - 2));
+
+      ctx.fillStyle = 'rgba(20,20,20,0.95)';
+      ctx.beginPath();
+      ctx.roundRect(lx, 20, tw, th, 4);
+      ctx.fill();
+
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      ctx.fillStyle = color;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, lx + tw / 2, 20 + th / 2);
+    };
+
+    drawCursor('A', this.cursorA, '#ffd54f');
+    drawCursor('B', this.cursorB, '#4fc3f7');
+
+    // 3. 顶部测量提示 / 差值
+    let infoText = '';
+
+    if (this.cursorA !== null && this.cursorB !== null) {
+      const delta = Math.abs(this.cursorB - this.cursorA);
+      infoText = `Δ ${formatDurationNs(delta)}`;
+    } else if (this.measureMode) {
+      infoText =
+        this.nextCursor === 'A'
+          ? 'Measure: click to set A'
+          : 'Measure: click to set B';
+    }
+
+    if (infoText) {
+      ctx.font = 'bold 12px monospace';
+      const tw = ctx.measureText(infoText).width + 14;
+      const th = 20;
+
+      let x: number;
+
+      if (
+        this.cursorA !== null &&
+        this.cursorB !== null &&
+        cursorAX !== null &&
+        cursorBX !== null
+      ) {
+        x = (cursorAX + cursorBX) / 2 - tw / 2;
+      } else {
+        x = chartRight - tw - 8;
+      }
+
+      x = Math.max(chartLeft + 4, Math.min(x, chartRight - tw - 4));
+
+      const y = 2;
+
+      ctx.fillStyle = 'rgba(50,40,10,0.95)';
+      ctx.beginPath();
+      ctx.roundRect(x, y, tw, th, 4);
+      ctx.fill();
+
+      ctx.strokeStyle = '#ffdf80';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      ctx.fillStyle = '#fff4c2';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(infoText, x + tw / 2, y + th / 2);
+    }
 
     ctx.restore();
   }
@@ -920,6 +1125,9 @@ export class TraceTimeline {
 
     window.removeEventListener('mousemove', this.onMouseMove);
     window.removeEventListener('mouseup', this.onMouseUp);
+
+    window.removeEventListener('keydown', this.onKeyDown);
+    window.removeEventListener('keyup', this.onKeyUp);
 
     this.canvas.remove();
   }
